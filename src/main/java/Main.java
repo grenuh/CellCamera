@@ -37,22 +37,26 @@ import java.util.ArrayList;
  */
 public class Main extends JPanel {
     private static Webcam webcam;
-    private int stepInMap;
     private Timer timerMask;
     private BufferedImage bigImage;
     private BufferedImage lastImage;//variable for saving last image
     private int[] maskAlpha;
     private BufferedImage maskColor;
-    private boolean masked = false;
+    private boolean masked = false; //if mask are applied
+    private boolean process = false; //if program create big image
     private JLabel bIjl = new JLabel();//big image label
     private JLabel pIjl = new JLabel();//image with points
     private JLabel mIjl = new JLabel();// mask image
     private JLabel rIjl = new JLabel(); //real camera image
     private JLabel grandMap = new JLabel(); //grand image
 
+    /**
+     * Constructor with GUI
+     */
     private Main() {
         JFrame frame = new JFrame("SLIDE SHOW - not mask!");
         setLayout(new GridBagLayout());
+        /*Menu*/
         JMenuBar menuBar = new JMenuBar();
         JMenu imgMenu = new JMenu("Image");
         JMenuItem save = new JMenuItem("Save map image");
@@ -124,6 +128,25 @@ public class Main extends JPanel {
         maskMenu.add(saveMask);
         maskMenu.add(loadMask);
         menuBar.add(maskMenu);
+        JMenu processMenu = new JMenu("Process");
+        JMenuItem bigMapItem = new JMenuItem("Start process");
+        bigMapItem.addActionListener(e -> {
+            if (process) {
+                process = false;
+                bigMapItem.setText("Start process");
+            } else {
+                if (masked) {
+                    bigMapItem.setText("Stop process");
+                    process = true;
+                } else {
+                    JOptionPane.showMessageDialog(frame, "Please, add mask first!", "Warning",
+                            JOptionPane.WARNING_MESSAGE);
+                }
+            }
+        });
+        processMenu.add(bigMapItem);
+        menuBar.add(processMenu);
+        /*Images*/
         GridBagConstraints c = new GridBagConstraints();
         c.gridx = 0;
         c.gridy = 0;
@@ -149,7 +172,6 @@ public class Main extends JPanel {
         c.gridy = 4;
         c.weightx = 4;
         add(grandMap, c);
-       /*Button*/
         final int[] i = {0};
         ActionListener actionMask = ae -> {
             if (i[0] == 0) {
@@ -170,18 +192,8 @@ public class Main extends JPanel {
         timerMask = new Timer(5, actionMask);
         c.gridy = 2;
         c.weighty = 0.1;
-        JButton setmap = new JButton("Set map");
         c.gridx = 3;
-        add(setmap, c);
         frame.getContentPane().add(this);
-        setmap.addActionListener(e -> {
-            System.out.println("pressed");
-            if (bigImage == null) {
-                bigImage = lastImage;
-            }
-            bigImage = (stitch(bigImage, lastImage, GrayF32.class));
-            grandMap.setIcon(new ImageIcon(scaleImageHoriz(bigImage, 320)));
-        });
         /*Only white */
         {
             maskColor = new BufferedImage(webcam.getViewSize().width / 2, webcam.getViewSize().height / 2,
@@ -203,6 +215,13 @@ public class Main extends JPanel {
             rIjl.setIcon(new ImageIcon(scaleImageHoriz(lastImage, 320)));
             if (masked) {
                 getImageMasked();
+                if (process) {
+                    if (bigImage == null) {
+                        bigImage = lastImage;
+                    }
+                    bigImage = stitch(bigImage, lastImage, GrayF32.class);
+                    grandMap.setIcon(new ImageIcon(scaleImageHoriz(bigImage, 320)));
+                }
             }
             pIjl.setIcon(new ImageIcon(scaleImageHoriz(addPoints(lastImage, GrayF32.class), 320)));
             bIjl.setIcon(new ImageIcon(scaleImageHoriz(lastImage, 320)));
@@ -240,6 +259,14 @@ public class Main extends JPanel {
         SwingUtilities.invokeLater(Main::new);
     }
 
+    /**
+     * Visualizations of core points
+     *
+     * @param image2    image to detection
+     * @param imageType Gray32.class
+     * @param <T>       Image
+     * @return image with points
+     */
     private static <T extends ImageGray<T>> BufferedImage addPoints(BufferedImage image2, Class<T> imageType) {
         T input2 = ConvertBufferedImage.convertFromSingle(image2, null, imageType);
         InterestPointDetector<T> detector2 = FactoryInterestPoint.fastHessian(
@@ -401,6 +428,9 @@ public class Main extends JPanel {
         lastImage.setRGB(0, 0, width, height, rgb, 0, width);
     }
 
+    /**
+     * Create alpha and color masks
+     */
     private void createMaskImages() {
         int width = maskColor.getWidth(), height = maskColor.getHeight();
         int[] rgb = maskColor.getRGB(0, 0, width, height, new int[width * height], 0, width);
@@ -422,6 +452,7 @@ public class Main extends JPanel {
 
     /**
      * Get summary image
+     *
      * @param input1 first photo
      * @param input2 second photo
      * @return summed image
@@ -443,8 +474,9 @@ public class Main extends JPanel {
 
     /**
      * Resize big image
+     *
      * @param source bigger image
-     * @param scale coefficient of scale
+     * @param scale  coefficient of scale
      * @return smaller image
      */
     private BufferedImage scaleImageHoriz(BufferedImage source, int scale) {
