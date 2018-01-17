@@ -40,13 +40,13 @@ public class Main extends JPanel {
     private int stepInMap;
     private Timer timerMask;
     private BufferedImage bigImage;
-    private BufferedImage lastImage;
+    private BufferedImage lastImage;//variable for saving last image
     private int[] maskAlpha;
     private BufferedImage maskColor;
     private boolean masked = false;
-    private JLabel bIjl = new JLabel();//big image
+    private JLabel bIjl = new JLabel();//big image label
     private JLabel pIjl = new JLabel();//image with points
-    private JLabel mIjl = new JLabel();// mask images
+    private JLabel mIjl = new JLabel();// mask image
     private JLabel rIjl = new JLabel(); //real camera image
     private JLabel grandMap = new JLabel(); //grand image
 
@@ -214,6 +214,12 @@ public class Main extends JPanel {
         timer.start();
     }
 
+    /**
+     * Main entry point
+     *
+     * @param args none
+     * @throws IOException when problem are gone
+     */
     public static void main(String[] args) throws IOException {
         // get default webcam and open it
         ArrayList<Webcam> cameras = new ArrayList<>(Webcam.getWebcams());
@@ -231,7 +237,6 @@ public class Main extends JPanel {
         }
         webcam.setViewSize(s2);
         webcam.open();
-        // get image
         SwingUtilities.invokeLater(Main::new);
     }
 
@@ -369,6 +374,9 @@ public class Main extends JPanel {
         return imageEnd;
     }
 
+    /**
+     * Accept color and alpha mask to image
+     */
     private void getImageMasked() {
         int width = lastImage.getWidth(), height = lastImage.getHeight();
         int[] rgb = lastImage.getRGB(0, 0, width, height, new int[width * height], 0, width);
@@ -412,6 +420,12 @@ public class Main extends JPanel {
         maskColor.setRGB(0, 0, width, height, rgbColor, 0, width);
     }
 
+    /**
+     * Get summary image
+     * @param input1 first photo
+     * @param input2 second photo
+     * @return summed image
+     */
     private BufferedImage getMedianImage(BufferedImage input1, BufferedImage input2) {
         int width = input1.getWidth(), height = input1.getHeight();
         BufferedImage output = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
@@ -427,6 +441,12 @@ public class Main extends JPanel {
         return output;
     }
 
+    /**
+     * Resize big image
+     * @param source bigger image
+     * @param scale coefficient of scale
+     * @return smaller image
+     */
     private BufferedImage scaleImageHoriz(BufferedImage source, int scale) {
         int newHeight = new Double(source.getHeight() / (source.getWidth() / scale)).intValue();
         BufferedImage resized = null;

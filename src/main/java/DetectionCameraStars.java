@@ -42,12 +42,8 @@ public final class DetectionCameraStars extends JPanel {
     public static void main(String[] args) throws IOException {
         // get default webcam and open it
         ArrayList<Webcam> cameras = new ArrayList<>(Webcam.getWebcams());
-      /*  if (cameras.size() > 1) {
-            webcam = cameras.get(1);
-        } else */{
-            webcam = cameras.get(0);
-        }
-        Dimension[] sizes  = webcam.getViewSizes();
+        webcam = cameras.get(0);
+        Dimension[] sizes = webcam.getViewSizes();
         Dimension s2 = sizes[0];
         for (int i = 1; i < sizes.length; i++) {
             if (s2.height < sizes[i].height) {
