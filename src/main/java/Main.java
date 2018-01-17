@@ -401,6 +401,9 @@ public class Main extends JPanel {
         lastImage.setRGB(0, 0, width, height, rgb, 0, width);
     }
 
+    /**
+     * Create color and alpha mask
+     */
     private void createMaskImages() {
         int width = maskColor.getWidth(), height = maskColor.getHeight();
         int[] rgb = maskColor.getRGB(0, 0, width, height, new int[width * height], 0, width);
@@ -464,4 +467,3 @@ public class Main extends JPanel {
         return resized;
     }
 }
-
