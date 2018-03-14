@@ -1,0 +1,142 @@
+        if (statua) {
+                    ConfigGeneralDetector confDetector = new ConfigGeneralDetector();
+                    confDetector.threshold = 1;
+                    confDetector.maxFeatures = 400;
+                    confDetector.radius = 5;//4
+                    // Use a KLT tracker
+                    PointTracker<GrayF32> tracker = FactoryPointTracker.klt(new int[]{1, 2, 4, 8}, confDetector, 3,
+                            GrayF32.class, GrayF32.class);
+                    // This estimates the 2D image motion
+                    // An Affine2D_F64 model also works quite well.
+                    ImageMotion2D<GrayF32, Homography2D_F64> motion2D =
+                            FactoryMotion2D.createMotion2D(220, 3, 2, 30, 0.6, 0.5, false, tracker, new Homography2D_F64());
+                    // wrap it so it output color images while estimating motion from gray
+                    ImageMotion2D<Planar<GrayF32>, Homography2D_F64> motion2DColor =
+                            new PlToGrayMotion2D<>(motion2D, GrayF32.class);
+                    // This fuses the images together
+                    stitch = FactoryMotion2D.createVideoStitch(0.5, motion2DColor, ImageType.pl(3, GrayF32.class));
+                    // Load an image sequence
+                    frame = ConvertBufferedImage.convertFromPlanar(lastImage, null, true, GrayF32.class);
+                    // shrink the input image and center it
+                    Homography2D_F64 shrink = new Homography2D_F64(0.5, 0, frame.width / 4, 0, 0.5, frame.height / 4, 0, 0, 1);
+                    shrink = shrink.invert(null);
+                    // The mosaic will be larger in terms of pixels but the image will be scaled down.
+                    // To change this into stabilization just make it the same size as the input with no shrink.
+                    stitch.configure(frame.width, frame.height, shrink);
+                    // process the first frame
+                    stitch.process(frame);
+                    // Create the GUI for displaying the results + input image
+                    enlarged = true;
+                    statua = false;
+                }
+                long time = System.currentTimeMillis();
+                frame = ConvertBufferedImage.convertFromPlanar(lastImage, null, true, GrayF32.class);
+                if (!stitch.process(frame)) {
+                    //  throw new RuntimeException("You should handle failures");
+                } else {
+                    // if the current image is close to the image border recenter the mosaic
+                    StitchingFromMotion2D.Corners corners = stitch.getImageCorners(frame.width, frame.height, null);
+                    if (nearBorder(corners.p0, stitch) || nearBorder(corners.p1, stitch) ||
+                            nearBorder(corners.p2, stitch) || nearBorder(corners.p3, stitch)) {
+                        stitch.setOriginToCurrent();
+                        // only enlarge the image once
+                        if (!enlarged) {
+                            enlarged = true;
+                            // double the image size and shift it over to keep it centered
+                            int widthOld = stitch.getStitchedImage().width;
+                            int heightOld = stitch.getStitchedImage().height;
+                            int widthNew = widthOld * 2;
+                            int heightNew = heightOld * 2;
+                            int tranX = (widthNew - widthOld) / 2;
+                            int tranY = (heightNew - heightOld) / 2;
+                            Homography2D_F64 newToOldStitch = new Homography2D_F64(1, 0, -tranX, 0, 1, -tranY, 0, 0, 1);
+                            stitch.resizeStitchImage(widthNew, heightNew, newToOldStitch);
+                        }
+                    }
+                    Planar<GrayF32> work = stitch.getStitchedImage();
+                    BufferedImage output = new BufferedImage(work.width, work.height, lastImage.getType());
+                    ConvertBufferedImage.convertTo(work, output, true);
+
+
+
+         /*//*/
+
+
+point 1 43
+point 2 60
+point 3 72
+point 4 84
+point 5 84
+point 6 364
+point 7 392
+point 8 395
+point 9 411
+point 10 457
+point 11 459
+point 12 459
+
+
+
+
+point 1 45
+point 2 64
+point 3 76
+point 4 83
+point 5 83
+point 6 362
+point 7 394
+point 8 395
+point 9 407
+point 10 454
+point 11 456
+point 12 456
+point 13 0
+point 14 83
+point 15 222
+point 16 222
+point 17 0
+point 18 0
+point 19 0
+
+point 1 43
+point 2 64
+point 3 74
+point 4 83
+point 5 83
+point 6 358
+point 7 390
+point 8 394
+point 9 413
+point 10 461
+point 11 464
+point 12 465
+point 13 0
+point 14 83
+point 15 147
+point 16 220
+point 17 0
+point 18 0
+point 19 0
+
+
+
+point 1 41
+point 2 61
+point 3 73
+point 4 85
+point 5 85
+point 6 312
+point 7 326
+point 8 328
+point 9 346
+point 10 394
+point 11 396
+point 12 397
+point 13 0
+point 14 85
+point 15 149
+point 16 202
+point 17 57741
+point 18 57793
+point 19 0
+Frame 339

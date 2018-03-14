@@ -1,0 +1,826 @@
+package demo;
+
+import boofcv.abst.feature.associate.AssociateDescription;
+import boofcv.abst.feature.associate.ScoreAssociation;
+import boofcv.abst.feature.detdesc.DetectDescribePoint;
+import boofcv.alg.descriptor.UtilFeature;
+import boofcv.alg.distort.ImageDistort;
+import boofcv.alg.distort.PixelTransformHomography_F32;
+import boofcv.alg.distort.impl.DistortSupport;
+import boofcv.alg.feature.describe.SurfDescribeOps;
+import boofcv.alg.interpolate.InterpolatePixelS;
+import boofcv.alg.transform.ii.impl.ImplIntegralImageOps;
+import boofcv.core.image.border.BorderType;
+import boofcv.factory.feature.associate.FactoryAssociation;
+import boofcv.factory.geo.ConfigRansac;
+import boofcv.factory.geo.FactoryMultiViewRobust;
+import boofcv.factory.interpolate.FactoryInterpolation;
+import boofcv.io.image.ConvertBufferedImage;
+import boofcv.struct.BoofDefaults;
+import boofcv.struct.feature.*;
+import boofcv.struct.geo.AssociatedPair;
+import boofcv.struct.image.GrayF32;
+import boofcv.struct.image.Planar;
+import boofcv.struct.sparse.SparseImageGradient;
+import com.github.sarxos.webcam.Webcam;
+import georegression.struct.homography.Homography2D_F64;
+import georegression.struct.point.Point2D_F64;
+import georegression.struct.point.Point2D_I32;
+import georegression.transform.homography.HomographyPointOps_F64;
+import org.ddogleg.fitting.modelset.ModelMatcher;
+import org.ddogleg.struct.FastQueue;
+
+import javax.imageio.ImageIO;
+import javax.swing.*;
+import java.awt.*;
+import java.awt.event.*;
+import java.awt.geom.Ellipse2D;
+import java.awt.image.BufferedImage;
+import java.awt.image.DataBuffer;
+import java.awt.image.DataBufferInt;
+import java.io.*;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.ArrayList;
+
+import static boofcv.io.image.ConvertRaster.getOffset;
+import static boofcv.io.image.ConvertRaster.stride;
+
+public class DemoMicroVideo extends JPanel implements KeyListener {
+    private static int cropped;
+    private static Webcam webcam;
+    private int[] maskDim = new int[2];
+    private int[] cropPoints;
+    private Timer timerMask;
+    private Timer timer;
+    private BufferedImage lastImage;//variable for saving last image
+    private BufferedImage midImage;
+    @SuppressWarnings("unused")
+    private BufferedImage bigImage;
+    private boolean masked = false; //if mask are applied
+    private JLabel bIjl = new JLabel();//big image label
+    private JLabel rIjl = new JLabel(); //real camera image
+    private JLabel grandMap = new JLabel(); //grand image
+    private int maskCoefficient = 3;
+    private int[][] rawMaskData = new int[4][];//3 colors
+    private JLabel pointImage0 = new JLabel(); //grand image
+    private JLabel pointImage1 = new JLabel(); //grand image
+    private int[] timeA = new int[20];
+
+    /**
+     * Constructor with GUI
+     */
+    private DemoMicroVideo() {
+        JFrame frame = new JFrame("SLIDE SHOW - not mask!");
+        setLayout(new GridBagLayout());
+        addKeyListener(this);
+        setFocusable(true);
+        setFocusTraversalKeysEnabled(false);
+                 /*Menu*/
+        JMenuBar menuBar = new JMenuBar();
+        JMenu imgMenu = new JMenu("Image");
+        JMenuItem save = new JMenuItem("Save map image");
+        save.addActionListener(e -> {
+            JFrame parentFrame = new JFrame();
+            JFileChooser fileChooser = new JFileChooser();
+            fileChooser.setDialogTitle("Specify a file to save");
+            int userSelection = fileChooser.showSaveDialog(parentFrame);
+            if (userSelection == JFileChooser.APPROVE_OPTION) {
+                File f1 = fileChooser.getSelectedFile();
+                if (f1 != null) {
+                    String name = f1.getName();
+                    String extension = name.substring(1 + name.lastIndexOf(".")).toLowerCase();
+                    try {
+                        //TODO  - export to file
+                        ImageIO.write(midImage, extension, f1);
+                    } catch (Exception e1) {
+                        e1.printStackTrace();
+                    }
+                }
+            }
+        });
+        imgMenu.add(save);
+        menuBar.add(imgMenu);
+        JMenu maskMenu = new JMenu("Mask");
+        JMenuItem setMask = new JMenuItem("Set mask");
+        setMask.addActionListener(e -> {
+            frame.setTitle("SLIDE SHOW - proceeed");
+            timerMask.start();
+        });
+        JMenuItem saveMask = new JMenuItem("Save mask image");
+        saveMask.addActionListener(e -> {
+            JFrame parentFrame = new JFrame();
+            JFileChooser fileChooser = new JFileChooser();
+            fileChooser.setDialogTitle("Specify a file to save");
+            int userSelection = fileChooser.showSaveDialog(parentFrame);
+            if (userSelection == JFileChooser.APPROVE_OPTION) {
+                File f1 = fileChooser.getSelectedFile();
+                if (f1 != null) {
+                    String name = f1.getName();
+                    String extension = name.substring(1 + name.lastIndexOf(".")).toLowerCase();
+                    try {
+                        BufferedImage maskColor = new BufferedImage(maskDim[0], maskDim[1], BufferedImage.TYPE_4BYTE_ABGR);
+                        int width = maskColor.getWidth(), height = maskColor.getHeight();
+                        int[] rgbColor = maskColor.getRGB(0, 0, width, height, new int[width * height], 0, width);
+                        for (int rgbIndex = 0; rgbIndex < rgbColor.length; rgbIndex++) {
+                            rgbColor[rgbIndex] = rawMaskData[3][rgbIndex] << 24 | (((255 - rawMaskData[0][rgbIndex]) * 2) / maskCoefficient) >> 1 << 16 | (((255 - rawMaskData[1][rgbIndex]) / maskCoefficient) << 8) | ((255 - rawMaskData[2][rgbIndex]) / maskCoefficient);
+                        }
+                        maskColor.setRGB(0, 0, width, height, rgbColor, 0, width);
+                        ImageIO.write(maskColor, extension, f1);
+                    } catch (IOException e1) {
+                        e1.printStackTrace();
+                    }
+                }
+            }
+        });
+        JMenuItem loadMask = new JMenuItem("Load alpha mask image");
+        loadMask.addActionListener(e -> {
+            JFileChooser fc = new JFileChooser();
+            int result = fc.showOpenDialog(null);
+            if (result == JFileChooser.APPROVE_OPTION) {
+                File file = fc.getSelectedFile();
+                try {
+                    BufferedImage bi = ImageIO.read(file);
+                    int width = bi.getWidth(), height = bi.getHeight();
+                    int[] rgb = bi.getRGB(0, 0, width, height, new int[width * height], 0, width);
+                    rawMaskData[3] = new int[rgb.length];
+                    for (int rgbIndex = 0; rgbIndex < rgb.length; rgbIndex++) {
+                        rawMaskData[3][rgbIndex] = (rgb[rgbIndex] >> 24) & 0xff0;
+                    }
+                } catch (IOException e1) {
+                    e1.printStackTrace();
+                }
+            }
+        });
+        JMenuItem cropMask = new JMenuItem("Crop image");
+        cropMask.addActionListener(e -> {
+            BufferedImage curr = lastImage;
+            JFrame frameCrop = new JFrame();
+            frameCrop.setTitle("Picture");
+            JLabel img = new JLabel(new ImageIcon(curr));
+            JPanel imgP = new JPanel();
+            imgP.add(img);
+            cropPoints = new int[4];
+            frameCrop.setSize(curr.getWidth() + 20, curr.getHeight() + 20);
+            frameCrop.setResizable(false);
+            frameCrop.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
+            frameCrop.setResizable(false);
+            MouseListener ml = new MouseListener() {
+                @Override
+                public void mouseClicked(MouseEvent e) {
+                    switch (cropped) {
+                        case 0:
+                            cropPoints[0] = e.getX();
+                            cropPoints[1] = e.getY();
+                            System.out.println(cropPoints[0] + " " + cropPoints[1]);
+                            cropped++;
+                            break;
+                        case 1:
+                            cropPoints[2] = e.getX();
+                            cropPoints[3] = e.getY();
+                            System.out.println(cropPoints[2] + " " + cropPoints[3]);
+                            cropped++;
+                            int x;
+                            int y;
+                            int w;
+                            int h;
+                            if (cropPoints[0] > cropPoints[2]) {
+                                x = cropPoints[2];
+                                w = cropPoints[0] - cropPoints[2];
+                            } else {
+                                x = cropPoints[0];
+                                w = cropPoints[2] - cropPoints[0];
+                            }
+                            if (cropPoints[1] > cropPoints[3]) {
+                                y = cropPoints[3];
+                                h = cropPoints[1] - cropPoints[3];
+                            } else {
+                                y = cropPoints[1];
+                                h = cropPoints[3] - cropPoints[1];
+                            }
+                            cropPoints[0] = x;
+                            cropPoints[1] = y;
+                            cropPoints[2] = w;
+                            cropPoints[3] = h;
+                            Graphics g = curr.getGraphics();
+                            g.setColor(Color.red);
+                            g.drawRect(x, y, w, h);
+                            g.dispose();
+                            img.setIcon(new ImageIcon(curr));
+                            repaint();
+                            break;
+                        case 2:
+                            frameCrop.dispose();
+                            try {
+                                String data = cropPoints[0] + " " + cropPoints[1] + "\n" + cropPoints[2] + " " + cropPoints[3];
+                                File f = new File("data.txt");
+                                BufferedWriter bw = new BufferedWriter(new FileWriter(f));
+                                bw.write(data);
+                                bw.close();
+                            } catch (Exception e1) {
+                                e1.printStackTrace();
+                            }
+                            break;
+                    }
+                }
+
+                @Override
+                public void mousePressed(MouseEvent e) {
+                }
+
+                @Override
+                public void mouseReleased(MouseEvent e) {
+                }
+
+                @Override
+                public void mouseEntered(MouseEvent e) {
+                }
+
+                @Override
+                public void mouseExited(MouseEvent e) {
+                }
+            };
+            imgP.addMouseListener(ml);
+            frameCrop.add(imgP);
+            frameCrop.setVisible(true);
+        });
+        JMenuItem intensityMask = new JMenuItem("Set intensity of mask");
+        intensityMask.addActionListener(e -> {
+        });
+        maskMenu.add(setMask);
+        maskMenu.add(saveMask);
+        maskMenu.add(loadMask);
+        maskMenu.add(cropMask);
+        maskMenu.add(intensityMask);
+        menuBar.add(maskMenu);
+                 /*Images*/
+        GridBagConstraints c = new GridBagConstraints();
+        c.insets = new Insets(3, 3, 3, 3);
+        c.gridx = 0;
+        c.gridy = 0;
+        add(new JLabel("Main image"), c);
+        c.gridx = 1;
+        add(new JLabel("Raw image"), c);
+        c.weighty = 1;
+        c.gridx = 0;
+        c.gridy = 1;
+        add(bIjl, c);
+        c.gridx = 1;
+        add(rIjl, c);
+        c.gridx = 0;
+        c.gridy = 2;
+        c.weightx = 4;
+        add(new JLabel("Press SPACE to add image"), c);
+        c.gridx = 0;
+        c.gridy = 3;
+        c.weightx = 1;
+        add(grandMap, c);
+        c.gridx = 1;
+        add(pointImage0, c);
+        c.gridx = 2;
+        add(pointImage1, c);
+        c.gridx = 3;
+        c.gridy = 3;
+        JLabel bufIm = new JLabel();
+        add(bufIm, c);
+        final int[] i = {0};
+        ActionListener actionMask = ae -> {
+            BufferedImage maskColor = null;
+            if (i[0] == 0) maskColor = webcam.getImage();
+            else maskColor = getMedianImage(maskColor, webcam.getImage());
+            i[0]++;
+            if (i[0] > 10) {
+                timerMask.stop();
+                createMaskImages(maskColor);
+                masked = true;
+                frame.setTitle("SLIDE SHOW");
+                Path path = Paths.get("mask.png");
+                if (Files.notExists(path)) {
+                    try {
+                        ImageIO.write(maskColor, "png", new File("mask.png"));
+                    } catch (IOException e1) {
+                        e1.printStackTrace();
+                    }
+                }
+            }
+        };
+        timerMask = new Timer(5, actionMask);
+        c.gridy = 2;
+        c.gridx = 3;
+
+
+                 /*Mask*/
+        Path path = Paths.get("mask.png");
+        if (Files.exists(path)) {
+            File file = new File("mask.png");
+            try {
+                BufferedImage maskColor = ImageIO.read(file);
+                int width = maskColor.getWidth(), height = maskColor.getHeight();
+                maskDim[0] = width;
+                maskDim[1] = height;
+                int[] rgb = maskColor.getRGB(0, 0, width, height, new int[width * height], 0, width);
+                rawMaskData[3] = new int[rgb.length];
+                rawMaskData[1] = new int[rgb.length];
+                rawMaskData[2] = new int[rgb.length];
+                rawMaskData[0] = new int[rgb.length];
+                for (int rgbIndex = 0; rgbIndex < rgb.length; rgbIndex++) {
+                    rawMaskData[3][rgbIndex] = (rgb[rgbIndex] >> 24) & 0xff0;
+                    rawMaskData[0][rgbIndex] = (rgb[rgbIndex] >> 16) & 0xff;//red
+                    rawMaskData[1][rgbIndex] = (rgb[rgbIndex] >> 8) & 0xff;//green
+                    rawMaskData[2][rgbIndex] = (rgb[rgbIndex]) & 0xff;//blue
+                }
+                masked = true;
+                frame.setTitle("SLIDE SHOW");
+            } catch (IOException e1) {
+                e1.printStackTrace();
+            }
+        }
+        path = Paths.get("data.txt");
+        if (Files.exists(path)) {
+            File file = new File("data.txt");
+            try {
+                BufferedReader br = new BufferedReader(new FileReader(file));
+                String[] a1 = br.readLine().split(" ");
+                String[] a2 = br.readLine().split(" ");
+                cropPoints = new int[4];
+                cropPoints[0] = Integer.parseInt(a1[0]);
+                cropPoints[1] = Integer.parseInt(a1[1]);
+                cropPoints[2] = Integer.parseInt(a2[0]);
+                cropPoints[3] = Integer.parseInt(a2[1]);
+                cropped = 2;
+            } catch (IOException e1) {
+                e1.printStackTrace();
+            }
+        }
+        ActionListener action = ae -> {
+            BufferedImage bufImg = webcam.getImage();
+            lastImage = new BufferedImage(bufImg.getWidth(), bufImg.getHeight(), BufferedImage.TYPE_INT_ARGB);
+            lastImage.getGraphics().drawImage(bufImg, 0, 0, null);
+            rIjl.setIcon(new ImageIcon(scaleImageHoriz(lastImage)));
+            if (masked) {
+                getImageMasked();
+            }
+            bIjl.setIcon(new ImageIcon(scaleImageHoriz(lastImage)));
+            revalidate();
+            repaint();
+        };
+        timer = new Timer(80, action);
+        timer.start();
+        frame.setJMenuBar(menuBar);
+        frame.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
+        frame.getContentPane().add(this);
+        frame.setLocationByPlatform(true);
+        frame.setSize(1240, 600);
+        frame.setVisible(true);
+    }
+
+    /**
+     * Main entry point
+     *
+     * @param args none
+     * @throws IOException when problem are gone
+     */
+    public static void main(String[] args) throws IOException {
+        // get default webcam and open it
+        ArrayList<Webcam> cameras = new ArrayList<>(Webcam.getWebcams());
+        if (cameras.size() > 1) {
+            webcam = cameras.get(1);
+        } else {
+            webcam = cameras.get(0);
+        }
+        Dimension[] sizes = webcam.getViewSizes();
+        Dimension cameraDimension = sizes[0];
+        for (int i = 1; i < sizes.length; i++) {
+            if (cameraDimension.height < sizes[i].height) {
+                cameraDimension = sizes[i];
+            }
+        }
+        webcam.setViewSize(cameraDimension);
+        webcam.open();
+        SwingUtilities.invokeLater(DemoMicroVideo::new);
+    }
+
+    private static <FD extends TupleDesc>
+    void describeImage(GrayF32 image,
+                       DetectDescribePoint detDesc,
+                       java.util.List<Point2D_F64> points,
+                       FastQueue<FD> listDescs) {
+        detDesc.detect(image);
+        listDescs.reset();
+        for (int i = 0; i < detDesc.getNumberOfFeatures(); i++) {
+            points.add(detDesc.getLocation(i).copy());
+            if (listDescs.size >= listDescs.data.length) {
+                listDescs.growArray((listDescs.data.length + 1) * 2);
+            }
+            listDescs.data[listDescs.size++].setTo(detDesc.getDescription(i));
+            // listDescs.grow().setTo(detDesc.getDescription(i));
+        }
+    }
+
+    private static BufferedImage copyImage(BufferedImage source) {
+        BufferedImage b = new BufferedImage(source.getWidth(), source.getHeight(), source.getType());
+        Graphics g = b.getGraphics();
+        g.drawImage(source, 0, 0, null);
+        g.dispose();
+        return b;
+    }
+
+    private static Point2D_I32 renderPoint(int x0, int y0, Homography2D_F64 fromBtoWork) {
+        Point2D_F64 result = new Point2D_F64();
+        HomographyPointOps_F64.transform(fromBtoWork, new Point2D_F64(x0, y0), result);
+        return new Point2D_I32((int) result.x, (int) result.y);
+    }
+
+    /**
+     * Accept color and alpha mask to image
+     */
+    private void getImageMasked() {
+        int width = lastImage.getWidth(), height = lastImage.getHeight();
+        int[] rgb = lastImage.getRGB(0, 0, width, height, new int[width * height], 0, width);
+        // int[] rgbColor = maskColor.getRGB(0, 0, width, height, new int[width * height], 0, width);
+        lastImage = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+        for (int rgbIndex = 0; rgbIndex < rgb.length; rgbIndex++) {
+            int red = ((rgb[rgbIndex] >> 16) & 0xff) + ((rawMaskData[0][rgbIndex] >> 16) & 0xff);
+            int green = ((rgb[rgbIndex] >> 8) & 0xff) + ((rawMaskData[1][rgbIndex] >> 8) & 0xff);
+            int blue = ((rgb[rgbIndex]) & 0xff) + ((rawMaskData[2][rgbIndex]) & 0xff);
+            if (red > 255) {
+                red = 255;
+            }
+            if (green > 255) {
+                green = 255;
+            }
+            if (blue > 255) {
+                blue = 255;
+            }
+            rgb[rgbIndex] = (rawMaskData[3][rgbIndex] << 24) | (((red)) << 16)
+                    | (((green)) << 8) | (blue);
+        }
+        lastImage.setRGB(0, 0, width, height, rgb, 0, width);
+        if (cropped == 2) {
+            lastImage = lastImage.getSubimage(cropPoints[0], cropPoints[1], cropPoints[2], cropPoints[3]);
+        }
+    }
+
+    /**
+     * Create alpha and color masks
+     */
+    private void createMaskImages(BufferedImage maskColor) {
+        int width = maskColor.getWidth(), height = maskColor.getHeight();
+        int[] rgb = maskColor.getRGB(0, 0, width, height, new int[width * height], 0, width);
+        int[] rgbColor = maskColor.getRGB(0, 0, width, height, new int[width * height], 0, width);
+        rawMaskData[0] = new int[rgbColor.length];
+        rawMaskData[1] = new int[rgbColor.length];
+        rawMaskData[2] = new int[rgbColor.length];
+        rawMaskData[3] = new int[rgbColor.length];
+        for (int rgbIndex = 0; rgbIndex < rgb.length; rgbIndex++) {
+            rawMaskData[0][rgbIndex] = (rgb[rgbIndex] >> 16) & 0xff;//red
+            rawMaskData[1][rgbIndex] = (rgb[rgbIndex] >> 8) & 0xff;//green
+            rawMaskData[2][rgbIndex] = (rgb[rgbIndex]) & 0xff;//blue
+            if (rawMaskData[0][rgbIndex] < 135 | rawMaskData[1][rgbIndex] < 135 | rawMaskData[2][rgbIndex] < 135) {
+                rawMaskData[3][rgbIndex] = 0;
+            } else {
+                rawMaskData[3][rgbIndex] = 255;
+            }
+            rgbColor[rgbIndex] = rawMaskData[3][rgbIndex] << 24 | (((255 - rawMaskData[0][rgbIndex]) * 2) / maskCoefficient) >> 1 << 16 | (((255 - rawMaskData[1][rgbIndex]) / maskCoefficient) << 8) | ((255 - rawMaskData[2][rgbIndex]) / maskCoefficient);
+        }
+    }
+
+    /**
+     * Get summary image
+     *
+     * @param input1 first photo
+     * @param input2 second photo
+     * @return summed image
+     */
+    private BufferedImage getMedianImage(BufferedImage input1, BufferedImage input2) {
+        int width = input1.getWidth(), height = input1.getHeight();
+        BufferedImage output = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+        int[] rgb1 = input1.getRGB(0, 0, width, height, new int[width * height], 0, width);
+        int[] rgb2 = input2.getRGB(0, 0, width, height, new int[width * height], 0, width);
+        for (int i = 0; i < width; i++) {
+            for (int j = 0; j < height; j++) {
+                int rgbIndex = i * height + j;
+                rgb1[rgbIndex] = ((rgb1[rgbIndex] >> 1) & 0x7f7f7f7f) + ((rgb2[rgbIndex] >> 1) & 0x7f7f7f7f) + (rgb1[rgbIndex] & rgb2[rgbIndex] & 0x01010101);
+            }
+        }
+        output.setRGB(0, 0, width, height, rgb1, 0, width);
+        return output;
+    }
+
+    /**
+     * Resize big image
+     * to 320*240 or smaller
+     *
+     * @param source bigger image
+     * @return smaller image
+     */
+    private BufferedImage scaleImageHoriz(BufferedImage source) {
+        int newWidght;
+        int newHeight;
+        double a1 = source.getWidth();
+        double a2 = source.getHeight();
+        double u = ((a1 * 3.0) / a2);
+        if (u > 4.0) {
+            newWidght = 320;
+            newHeight = new Double(a2 / (a1 / 320.0)).intValue();
+        } else {
+            newHeight = 240;
+            newWidght = new Double(a1 / (a2 / 240.0)).intValue();
+        }
+        BufferedImage resized = null;
+        try {
+            resized = new BufferedImage(newWidght, newHeight, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D g = resized.createGraphics();
+            g.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+                    RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            g.drawImage(source, 0, 0, newWidght, newHeight, 0, 0, source.getWidth(),
+                    source.getHeight(), null);
+            g.dispose();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return resized;
+    }
+
+    @Override
+    public void keyTyped(KeyEvent e) {
+    }
+
+    @Override
+    public void keyPressed(KeyEvent e) {
+        int keyCode = e.getKeyCode();
+        if (keyCode == KeyEvent.VK_BACK_SPACE) {
+            if (masked & cropped == 2) {
+                startVideo();
+            } else {
+                JOptionPane.showMessageDialog(null, "Perform calibration", "Warning",
+                        JOptionPane.WARNING_MESSAGE);
+            }
+        }
+    }
+
+    @Override
+    public void keyReleased(KeyEvent e) {
+    }
+
+    private void startVideo() {
+        BufferedImage bufImg = webcam.getImage();
+        lastImage = new BufferedImage(bufImg.getWidth(), bufImg.getHeight(), BufferedImage.TYPE_INT_ARGB);
+        lastImage.getGraphics().drawImage(bufImg, 0, 0, null);
+        rIjl.setIcon(new ImageIcon(scaleImageHoriz(lastImage)));
+        if (masked) {
+            getImageMasked();
+        }
+        bIjl.setIcon(new ImageIcon(scaleImageHoriz(lastImage)));
+        midImage = copyImage(lastImage);
+        ActionListener actionN = ae -> {
+            long time = System.currentTimeMillis();
+            BufferedImage bufImg0 = webcam.getImage();
+            lastImage = new BufferedImage(bufImg0.getWidth(), bufImg0.getHeight(), BufferedImage.TYPE_INT_ARGB);
+            lastImage.getGraphics().drawImage(bufImg0, 0, 0, null);
+            rIjl.setIcon(new ImageIcon(scaleImageHoriz(lastImage)));
+            timeA[1] += (System.currentTimeMillis() - time);
+            if (masked) {
+                getImageMasked();
+            }
+            timeA[2] += (System.currentTimeMillis() - time);
+            bIjl.setIcon(new ImageIcon(scaleImageHoriz(lastImage)));
+            BufferedImage as1 = copyImage(midImage);
+            BufferedImage as2 = copyImage(lastImage);
+            timeA[3] += (System.currentTimeMillis() - time);
+      /*Begin of magic*/
+            // GrayF32 inputA = ConvertBufferedImage.convertFrom(as1, (GrayF32) null);
+            GrayF32 inputA = new GrayF32(as1.getWidth(), as1.getHeight());
+            DataBuffer buff = as1.getRaster().getDataBuffer();
+            DataBufferInt buff1 = (DataBufferInt) buff;
+            int[] srcData = buff1.getData();
+            float[] data = inputA.data;
+            int srcStride = stride(as1.getRaster());
+            int srcOffset = getOffset(as1.getRaster());
+            int srcStrideDiff = srcStride - as1.getRaster().getNumDataElements() * inputA.width;
+            int indexSrc = srcOffset;
+            for (int y = 0; y < inputA.height; y++) {
+                int indexDst = inputA.startIndex + y * inputA.stride;
+                for (int x = 0; x < inputA.width; x++) {
+                    int rgb = srcData[indexSrc++];
+                    int r = ((rgb >>> 16) & 0xFF) + ((rgb >>> 8) & 0xFF) + (rgb & 0xFF);
+                    float ave = r / 3.0f;
+                    data[indexDst++] = ave;
+                }
+                indexSrc += srcStrideDiff;
+            }
+            /**/
+            GrayF32 inputB = ConvertBufferedImage.convertFrom(as2, (GrayF32) null);
+            // Detect using the standard SURF feature descriptor and describer
+            WrapDetectDescribeSurfGrenuh detDesc = new WrapDetectDescribeSurfGrenuh();
+            ScoreAssociation<BrightFeature> scorer = FactoryAssociation.scoreEuclidean(BrightFeature.class, true);
+            AssociateDescription<BrightFeature> associate = FactoryAssociation.greedy(scorer, 2, true);
+            // fit the images using a homography.  This works well for rotations and distant objects.
+            ModelMatcher<Homography2D_F64, AssociatedPair> modelMatcher =
+                    FactoryMultiViewRobust.homographyRansac(null, new ConfigRansac(60, 3));
+            timeA[4] += (System.currentTimeMillis() - time);/*!!! begin*/
+            // get the length of the description
+            java.util.List<Point2D_F64> pointsA = new ArrayList<>();
+            FastQueue<BrightFeature> descA = new FastQueue<BrightFeature>(200, BrightFeature.class, true) {
+                @Override
+                protected BrightFeature createInstance() {
+                    return detDesc.createDescription();
+                }
+            };
+            java.util.List<Point2D_F64> pointsB = new ArrayList<>();
+            FastQueue<BrightFeature> descB = new FastQueue<BrightFeature>(200, BrightFeature.class, true) {
+                @Override
+                protected BrightFeature createInstance() {
+                    return detDesc.createDescription();
+                }
+            };
+            timeA[5] += (System.currentTimeMillis() - time);
+            //describeImage(inputA, detDesc, pointsA, descA);
+            detDesc.ii = inputA.createNew(inputA.width, inputA.height);
+            ImplIntegralImageOps.transform(inputA, detDesc.ii);
+            int indexSrcQ = inputA.startIndex;
+            int indexDst = detDesc.ii.startIndex;
+            int end = indexSrcQ + inputA.width;
+            float total = 0;
+            while (indexSrcQ < end) {
+                detDesc.ii.data[indexDst++] = total += inputA.data[indexSrcQ];
+                indexSrcQ++;
+            }
+             /*!!! end*/
+            timeA[16] += (System.currentTimeMillis() - time);
+            for (int y = 1; y < inputA.height; y++) {
+                indexSrcQ = inputA.startIndex + inputA.stride * y;
+                indexDst = detDesc.ii.startIndex + detDesc.ii.stride * y;
+                int indexPrev = indexDst - detDesc.ii.stride;
+                end = indexSrcQ + inputA.width;
+                total = 0;
+                for (; indexSrcQ < end; indexSrcQ++) {
+                    total += inputA.data[indexSrcQ];
+                    detDesc.ii.data[indexDst++] = detDesc.ii.data[indexPrev++] + total;
+                }
+            }
+            detDesc.orientation.setImage(detDesc.ii);
+            detDesc.describe.setImage(detDesc.ii);
+            detDesc.features.reset();
+            detDesc.featureAnglesArrI = 0;
+            // detect features
+            detDesc.detector.detect(detDesc.ii);
+            // describe the found interest points
+            detDesc.foundPointsArr = (ScalePoint[]) detDesc.detector.foundPoints.data;
+            timeA[17] += (System.currentTimeMillis() - time);
+            // System.out.println("fuck " + detDesc.foundPoints.size());
+            //  timeA[17] = timeA[18] = 0;
+            for (int i = 0; i < detDesc.foundPointsArr.length; i++) {
+                double radius = detDesc.foundPointsArr[i].scale * BoofDefaults.SURF_SCALE_TO_RADIUS;
+                detDesc.orientation.setObjectRadius(radius);
+                double angle = detDesc.orientation.compute(detDesc.foundPointsArr[i].x, detDesc.foundPointsArr[i].y);
+                BrightFeature ret = detDesc.features.grow();
+                // detDesc.describe.describe(detDesc.foundPointsArr[i].x, detDesc.foundPointsArr[i].y, angle, detDesc.foundPointsArr[i].scale, ret);
+                detDesc.describe.describe(detDesc.foundPointsArr[i].x, detDesc.foundPointsArr[i].y, angle, detDesc.foundPointsArr[i].scale, (TupleDesc_F64) ret);
+                //    public void describe(double x, double y, double angle, double scale, TupleDesc_F64 ret)
+                double c = Math.cos(angle), s = Math.sin(angle);
+                // By assuming that the entire feature is inside the image faster algorithms can be used
+                // the results are also of dubious value when interacting with the image border.
+                boolean isInBounds =
+                        SurfDescribeOps.isInside(detDesc.describe.ii, detDesc.foundPointsArr[i].x,
+                                detDesc.foundPointsArr[i].y, detDesc.describe.radiusDescriptor, detDesc.describe.widthSample, detDesc.foundPointsArr[i].scale, c, s);
+                // declare the feature if needed
+                if (ret == null)
+                    ret = new BrightFeature(detDesc.describe.featureDOF);
+                else if (ret.value.length != detDesc.describe.featureDOF)
+                    throw new IllegalArgumentException("Provided feature must have " + detDesc.describe.featureDOF + " values");
+                detDesc.describe.gradient.setImage(detDesc.describe.ii);
+                detDesc.describe.gradient.setWidth(detDesc.describe.widthSample * detDesc.foundPointsArr[i].scale);
+                // use a safe method if its along the image border
+                SparseImageGradient gradient = isInBounds ? detDesc.describe.gradient : detDesc.describe.gradientSafe;
+                // extract descriptor
+                detDesc.describe.features(detDesc.foundPointsArr[i].x, detDesc.foundPointsArr[i].y, c, s, detDesc.foundPointsArr[i].scale, gradient, ret.value);
+
+
+                // normalize feature vector to have an Euclidean length of 1
+                // adds light invariance
+                UtilFeature.normalizeL2(ret);
+                // Laplacian's sign
+                ret.white = detDesc.describe.computeLaplaceSign((int) (detDesc.foundPointsArr[i].x + 0.5), (int) (detDesc.foundPointsArr[i].y + 0.5), detDesc.foundPointsArr[i].scale);
+                if (detDesc.featureAnglesArrI == detDesc.featureAnglesArr.length) {
+                    double[] temp;
+                    try {
+                        temp = new double[detDesc.featureAnglesArrI * 2];
+                    } catch (OutOfMemoryError var5) {
+                        System.gc();
+                        temp = new double[3 * detDesc.featureAnglesArrI / 2];
+                    }
+                    System.arraycopy(detDesc.featureAnglesArr, 0, temp, 0, detDesc.featureAnglesArrI);
+                    detDesc.featureAnglesArr = temp;
+                }
+                detDesc.featureAnglesArr[detDesc.featureAnglesArrI++] = angle;
+                //timeA[18] += (System.currentTimeMillis() - time);
+            }
+            //timeA[19] = (timeA[18] - timeA[17]) / detDesc.foundPoints.size();
+            /**/
+            descA.size = 0;
+            timeA[18] += (System.currentTimeMillis() - time);
+               /*!!! begin*/
+            for (int i = 0; i < detDesc.foundPointsArr.length; i++) {
+                pointsA.add(new Point2D_F64(detDesc.foundPointsArr[i]));
+                if (descA.size >= descA.data.length) {
+                    descA.growArray((descA.data.length + 1) * 2);
+                }
+                descA.data[descA.size++].setTo(detDesc.features.get(i));
+            }
+               /*!!! end*/
+            timeA[19] += (System.currentTimeMillis() - time);
+            describeImage(inputB, detDesc, pointsB, descB);
+            timeA[6] += (System.currentTimeMillis() - time);
+            // Associate features between the two images
+            associate.setSource(descA);
+            associate.setDestination(descB);
+            associate.associate();
+            timeA[7] += (System.currentTimeMillis() - time);
+            /*!!! begin*/
+            // create a list of AssociatedPairs that tell the model matcher how a feature moved
+            FastQueue<AssociatedIndex> matches = associate.getMatches();
+            java.util.List<AssociatedPair> pairs = new ArrayList<>();
+            Graphics2D gB = as2.createGraphics();
+            Graphics2D gA = as1.createGraphics();
+            // System.out.println("\t Point 3.5 - " + (System.currentTimeMillis() - time));
+            for (int i = 0; i < matches.size(); i++) {
+                AssociatedIndex match = matches.get(i);
+                Point2D_F64 a = pointsA.get(match.src);
+                gA.draw(new Ellipse2D.Double((int) a.x, (int) a.y, 2, 2));
+                Point2D_F64 b = pointsB.get(match.dst);
+                gB.draw(new Ellipse2D.Double((int) b.x, (int) b.y, 2, 2));
+                pairs.add(new AssociatedPair(a, b, false));
+            }
+            /*!!! end*/
+            timeA[8] += (System.currentTimeMillis() - time); // find the best fit model to describe the change between these images
+            if (!modelMatcher.process(pairs))
+                throw new RuntimeException("Model Matcher failed!");
+            // return the found image transform
+            Homography2D_F64 H = modelMatcher.getModelParameters().copy();
+            // specify size of output image
+            double scale = 0.5;
+            // Convert into a BoofCV color format
+            Planar<GrayF32> colorA =
+                    ConvertBufferedImage.convertFromPlanar(as1, null, true, GrayF32.class);
+            Planar<GrayF32> colorB =
+                    ConvertBufferedImage.convertFromPlanar(as2, null, true, GrayF32.class);
+            // Where the output images are rendered into
+            Planar<GrayF32> work = colorA.createSameShape();
+            // Adjust the transform so that the whole image can appear inside of it
+            Homography2D_F64 fromAToWork = new Homography2D_F64(scale, 0, colorA.width / 4, 0, scale, colorA.height / 4, 0, 0, 1);
+            Homography2D_F64 fromWorkToA = fromAToWork.invert(null);
+            // Used to render the results onto an image
+            PixelTransformHomography_F32 model = new PixelTransformHomography_F32();
+            InterpolatePixelS<GrayF32> interp = FactoryInterpolation.bilinearPixelS(GrayF32.class, BorderType.ZERO);
+            ImageDistort<Planar<GrayF32>, Planar<GrayF32>> distort =
+                    DistortSupport.createDistortPL(GrayF32.class, model, interp, false);
+            distort.setRenderAll(false);
+            timeA[9] += (System.currentTimeMillis() - time); // Render first image
+            model.set(fromWorkToA);
+            distort.apply(colorA, work);
+            // Render second image
+            Homography2D_F64 fromWorkToB = fromWorkToA.concat(H, null);
+            model.set(fromWorkToB);
+            distort.apply(colorB, work);
+            timeA[10] += (System.currentTimeMillis() - time);// Convert the rendered image into a BufferedImage
+            /*!!! begin*/
+            BufferedImage output = new BufferedImage(work.width, work.height, as1.getType());
+            ConvertBufferedImage.convertTo(work, output, true);
+            Graphics2D g2 = output.createGraphics();
+            // draw lines around the distorted image to make it easier to see
+            Homography2D_F64 fromBtoWork = fromWorkToB.invert(null);
+            /*!!! end*/
+            timeA[11] += (System.currentTimeMillis() - time);
+            Point2D_I32 corners[] = new Point2D_I32[4];
+            corners[0] = renderPoint(0, 0, fromBtoWork);
+            corners[1] = renderPoint(colorB.width, 0, fromBtoWork);
+            corners[2] = renderPoint(colorB.width, colorB.height, fromBtoWork);
+            corners[3] = renderPoint(0, colorB.height, fromBtoWork);
+            g2.setColor(Color.ORANGE);
+            g2.setStroke(new BasicStroke(4));
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g2.drawLine(corners[0].x, corners[0].y, corners[1].x, corners[1].y);
+            g2.drawLine(corners[1].x, corners[1].y, corners[2].x, corners[2].y);
+            g2.drawLine(corners[2].x, corners[2].y, corners[3].x, corners[3].y);
+            g2.drawLine(corners[3].x, corners[3].y, corners[0].x, corners[0].y);
+            timeA[12] += (System.currentTimeMillis() - time);
+                            /*End of magic*/
+            pointImage0.setIcon(new ImageIcon(scaleImageHoriz(as1)));
+            pointImage1.setIcon(new ImageIcon(scaleImageHoriz(as2)));
+            grandMap.setIcon(new ImageIcon(scaleImageHoriz(output)));
+            midImage = lastImage;
+            revalidate();
+            repaint();
+            timeA[0]++;
+            for (int i = 1; i < 20; i++) {
+                System.out.println("point " + i + " " + (timeA[i] / timeA[0]));
+            }
+            System.out.println("Frame " + (System.currentTimeMillis() - time));
+        };
+        timer.stop();
+        Timer timingNew = new Timer(0, actionN);
+        timingNew.start();
+    }
+}

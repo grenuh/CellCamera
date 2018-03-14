@@ -12,6 +12,13 @@ repositories {
 dependencies {
     testCompile group: 'junit', name: 'junit', version: '4.12'
     compile 'com.github.sarxos:webcam-capture:0.3.11'
+// https://mvnrepository.com/artifact/com.nativelibs4java/bridj
+    compile group: 'com.nativelibs4java', name: 'bridj', version: '0.7.0'
 
+    compile 'com.github.sarxos:webcam-capture-driver-v4l4j:0.3.11'
+// https://mvnrepository.com/artifact/org.boofcv/boofcv-feature
+    compile group: 'org.boofcv', name: 'boofcv-feature', version: '0.28'
+// https://mvnrepository.com/artifact/org.boofcv/boofcv-core
+    compile group: 'org.boofcv', name: 'boofcv-core', version: '0.28'
 
 }

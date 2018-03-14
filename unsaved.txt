@@ -1,0 +1,108 @@
+
+   /* public BufferedImage stitch() {
+        // GrayF32 inputA = ConvertBufferedImage.convertFromSingle(bigImage, null, GrayF32.class);
+        GrayF32 inputA = ConvertBufferedImage.convertFromSingle(midImage, null, GrayF32.class);
+        GrayF32 inputB = ConvertBufferedImage.convertFromSingle(lastImage, null, GrayF32.class);
+        // Detect using the standard SURF feature descriptor and describer
+        DetectDescribePoint detDesc = FactoryDetectDescribe.surfStable(
+                new ConfigFastHessian(10, 2, 100, 2, 9, 3, 4), null, null, GrayF32.class);
+        //  new ConfigFastHessian(1, 2, 200, 1, 9, 4, 4), null, null, GrayF32.class);
+        ScoreAssociation<BrightFeature> scorer = FactoryAssociation.scoreEuclidean(BrightFeature.class, true);
+        AssociateDescription<BrightFeature> associate = FactoryAssociation.greedy(scorer, 2, true);
+        // fit the images using a homography.  This works well for rotations and distant objects.
+        ModelMatcher<Homography2D_F64, AssociatedPair> modelMatcher =
+                FactoryMultiViewRobust.homographyRansac(null, new ConfigRansac(60, 3));
+        Homography2D_F64 H = computeTransform(inputA, inputB, detDesc, associate, modelMatcher);
+        //return and reneder image
+   /*     if (H.a13 > cameraDimension.width | H.a13 < -cameraDimension.width | H.a23 > cameraDimension.width | H.a23 < -cameraDimension.width) {
+            System.err.println("Fail!");
+            return bigImage;
+        }*//*
+
+        System.out.println(H.a13 + " " + H.a23 + " H");
+        System.out.println(midPosition[0] + " " + midPosition[1] + " M");
+        int xD = bigImage.getWidth();
+        double xT = (Math.abs(H.a13) + midPosition[0] + lastImage.getWidth());
+        if (xD < xT) {
+            xD = (int) Math.round(xT);
+        }
+        int yD = bigImage.getHeight();
+        double yT = (Math.abs(H.a23) + midPosition[1] + lastImage.getHeight());
+        if (yD < yT) {
+            yD = (int) Math.round(yT);
+        }
+        System.out.println("Dimension of  new map - " + xD + " " + yD);
+        BufferedImage imageEnd = new BufferedImage(xD, yD, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g2 = imageEnd.createGraphics();
+        int xA1 = 0;
+        if ((midPosition[0] - H.a13) < 0) {
+            xA1 = ((int) Math.round(H.a13 - midPosition[0]));
+        }
+        int yA1 = 0;
+        if ((midPosition[1] - H.a23) < 0) {
+            yA1 = ((int) Math.round(H.a23 - midPosition[1]));
+        }
+        //  System.out.println(xA1 + " " + yA1);
+        System.out.println("Location of map - " + xA1 + " " + yA1);
+        g2.drawImage(bigImage, null, xA1, yA1);
+        xA1 = midPosition[0] - ((int) Math.round(H.a13));
+        if ((midPosition[0] - H.a13) < 0) {
+            xA1 = 0;
+        }
+        yA1 = midPosition[1] - ((int) Math.round(H.a23));
+        if ((midPosition[1] - H.a23) < 0) {
+            yA1 = 0;
+        }
+        // System.out.println(xA1 + " " + yA1);
+        System.out.println("Location of image - " + xA1 + " " + yA1);
+        g2.drawImage(lastImage, null, xA1, yA1);
+        g2.dispose();
+        midPosition[0] = xA1;
+        midPosition[1] = yA1;
+        midImage = new BufferedImage(lastImage.getWidth(), lastImage.getHeight(), lastImage.getType());
+        Graphics g = midImage.getGraphics();
+        g.drawImage(lastImage, 0, 0, null);
+        g.dispose();
+        return imageEnd;
+    }*/
+
+
+    /***
+
+
+               /* GrayF32 inputA = ConvertBufferedImage.convertFromSingle(as1, null, GrayF32.class);
+                GrayF32 inputB = ConvertBufferedImage.convertFromSingle(as2, null, GrayF32.class);
+    /*            InterestPointDetector detector2 = FactoryInterestPoint.fastHessian(
+                        new ConfigFastHessian(10, 2, 100, 2, 9, 3, 4));
+                detector2.detect(inputA);
+                ArrayList<Point2D_F64> img2Points = new ArrayList<>();
+                ArrayList<Double> img2R = new ArrayList<>();
+                for (int i = 0; i < detector2.getNumberOfFeatures(); i++) {
+                    img2Points.add(detector2.getLocation(i));
+                    img2R.add(detector2.getRadius(i));
+                }
+                Graphics2D g2 = (as1).createGraphics();
+                for (int i1 = 0; i1 < img2Points.size(); i1++) {
+                    Point2D_F64 pp = img2Points.get(i1);
+                    int radius = img2R.get(i1).intValue();
+                    StarPolygon st = new StarPolygon((int) pp.x, (int) pp.y, radius, 3, 8);
+                    g2.draw(st);
+                }
+                g2.setStroke(new BasicStroke(3));
+                InterestPointDetector detector2u = FactoryInterestPoint.fastHessian(
+                        new ConfigFastHessian(1, 2, 200, 1, 9, 4, 4));
+                detector2u.detect(inputB);
+                ArrayList<Point2D_F64> img2Pointsu = new ArrayList<>();
+                ArrayList<Double> img2Ru = new ArrayList<>();
+                for (int i = 0; i < detector2u.getNumberOfFeatures(); i++) {
+                    img2Pointsu.add(detector2u.getLocation(i));
+                    img2Ru.add(detector2u.getRadius(i));
+                }
+                Graphics2D g2u = (as2).createGraphics();
+                for (int i1 = 0; i1 < img2Pointsu.size(); i1++) {
+                    Point2D_F64 ppu = img2Pointsu.get(i1);
+                    int radius = img2Ru.get(i1).intValue();
+                    StarPolygon st = new StarPolygon((int) ppu.x, (int) ppu.y, radius, 3, 8);
+                    g2u.draw(st);
+                }
+                g2u.setStroke(new BasicStroke(3));*/

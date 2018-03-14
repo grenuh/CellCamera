@@ -1,40 +1,52 @@
+import boofcv.abst.feature.associate.AssociateDescription;
+import boofcv.abst.feature.associate.ScoreAssociation;
+import boofcv.abst.feature.detdesc.DetectDescribePoint;
 import boofcv.abst.feature.detect.interest.ConfigFastHessian;
 import boofcv.abst.feature.detect.interest.InterestPointDetector;
+import boofcv.alg.descriptor.UtilFeature;
+import boofcv.factory.feature.associate.FactoryAssociation;
+import boofcv.factory.feature.detdesc.FactoryDetectDescribe;
 import boofcv.factory.feature.detect.interest.FactoryInterestPoint;
+import boofcv.factory.geo.ConfigRansac;
+import boofcv.factory.geo.FactoryMultiViewRobust;
 import boofcv.io.image.ConvertBufferedImage;
+import boofcv.struct.feature.AssociatedIndex;
+import boofcv.struct.feature.BrightFeature;
+import boofcv.struct.feature.TupleDesc;
+import boofcv.struct.geo.AssociatedPair;
 import boofcv.struct.image.GrayF32;
+import boofcv.struct.image.ImageGray;
 import com.github.sarxos.webcam.Webcam;
+import georegression.struct.homography.Homography2D_F64;
 import georegression.struct.point.Point2D_F64;
+import org.ddogleg.fitting.modelset.ModelMatcher;
+import org.ddogleg.struct.FastQueue;
 
 import javax.imageio.ImageIO;
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.ActionListener;
+import java.awt.event.KeyEvent;
+import java.awt.event.KeyListener;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 
-/**
- * Main method
- */
-public class Main extends JPanel {
+public class CellViewer extends JPanel implements KeyListener {
     private static Webcam webcam;
     private Timer timerMask;
     private Timer timer;
-    private Timer timerWork;
     private BufferedImage lastImage;//variable for saving last image
     private int[] maskAlpha;
     private BufferedImage maskColor;
     private boolean masked = false; //if mask are applied
-    private boolean process = false; //if program create big image
     private JLabel bIjl = new JLabel();//big image label
     private JLabel pIjl = new JLabel();//image with points
     private JLabel mIjl = new JLabel();// mask image
     private JLabel rIjl = new JLabel(); //real camera image
     private JLabel grandMap = new JLabel(); //grand image
-    //  private Planar<GrayF32> midImage;
-    // private Planar<GrayF32> bigImage;
+    private JLabel bufIm = new JLabel(); //grand image
     private BufferedImage bigImage;
     private BufferedImage midImage;
     private int[] midPosition;
@@ -43,10 +55,12 @@ public class Main extends JPanel {
     /**
      * Constructor with GUI
      */
-    private Main() {
+    private CellViewer() {
         JFrame frame = new JFrame("SLIDE SHOW - not mask!");
         setLayout(new GridBagLayout());
-
+        addKeyListener(this);
+        setFocusable(true);
+        setFocusTraversalKeysEnabled(false);
         /*Menu*/
         JMenuBar menuBar = new JMenuBar();
         JMenu imgMenu = new JMenu("Image");
@@ -119,31 +133,7 @@ public class Main extends JPanel {
         maskMenu.add(saveMask);
         maskMenu.add(loadMask);
         menuBar.add(maskMenu);
-        JMenu processMenu = new JMenu("Process");
-        JMenuItem bigMapItem = new JMenuItem("Start process");
-        bigMapItem.addActionListener(e -> {
-            if (process) {
-                process = false;
-                bigMapItem.setText("Start process");
-                timer.stop();
-                timerWork.stop();
-                timer.start();
-            } else {
-                if (masked) {
-                    bigMapItem.setText("Stop process");
-                    process = true;
-                    bigImage = lastImage;
-                    midPosition = new int[]{0, 0};
-                    midImage = lastImage;
-                    timerWork.start();
-                } else {
-                    JOptionPane.showMessageDialog(frame, "Please, add mask first!", "Warning",
-                            JOptionPane.WARNING_MESSAGE);
-                }
-            }
-        });
-        processMenu.add(bigMapItem);
-        menuBar.add(processMenu);
+
         /*Images*/
         GridBagConstraints c = new GridBagConstraints();
         c.gridx = 0;
@@ -172,8 +162,11 @@ public class Main extends JPanel {
         add(new JLabel("Press SPACE to add image"), c);
         c.gridx = 0;
         c.gridy = 3;
-        c.weightx = 4;
+        c.weightx = 3;
         add(grandMap, c);
+        c.gridx = 3;
+        c.gridy = 3;
+        add(bufIm, c);
         final int[] i = {0};
         ActionListener actionMask = ae -> {
             if (i[0] == 0) {
@@ -185,7 +178,7 @@ public class Main extends JPanel {
             if (i[0] > 10) {
                 timerMask.stop();
                 createMaskImages();
-                mIjl.setIcon(new ImageIcon(scaleImageHoriz(maskColor, 320)));
+                mIjl.setIcon(new ImageIcon(scaleImageHoriz(maskColor, 240)));
                 masked = true;
                 frame.setTitle("SLIDE SHOW");
             }
@@ -213,32 +206,17 @@ public class Main extends JPanel {
             BufferedImage bufImg = webcam.getImage();
             lastImage = new BufferedImage(bufImg.getWidth(), bufImg.getHeight(), BufferedImage.TYPE_INT_ARGB);
             lastImage.getGraphics().drawImage(bufImg, 0, 0, null);
-            rIjl.setIcon(new ImageIcon(scaleImageHoriz(lastImage, 320)));
+            rIjl.setIcon(new ImageIcon(scaleImageHoriz(lastImage, 240)));
             if (masked) {
                 getImageMasked();
             }
-            pIjl.setIcon(new ImageIcon(scaleImageHoriz(addPoints(lastImage), 320)));
-            bIjl.setIcon(new ImageIcon(scaleImageHoriz(lastImage, 320)));
+            pIjl.setIcon(new ImageIcon(scaleImageHoriz(addPoints(lastImage), 240)));
+            bIjl.setIcon(new ImageIcon(scaleImageHoriz(lastImage, 240)));
             revalidate();
             repaint();
-        };
-        ActionListener actionWork = ae -> {
-            BufferedImage bufImg = webcam.getImage();
-            lastImage = new BufferedImage(bufImg.getWidth(), bufImg.getHeight(), BufferedImage.TYPE_INT_ARGB);
-            lastImage.getGraphics().drawImage(bufImg, 0, 0, null);
-            rIjl.setIcon(new ImageIcon(scaleImageHoriz(lastImage, 320)));
-            getImageMasked();
-            //  bigImage = Panorama.stitch(midImage,lastImage,bigImage,cameraDimension,midPosition);
-            grandMap.setIcon(new ImageIcon(scaleImageHoriz(bigImage, 320)));
-            pIjl.setIcon(new ImageIcon(scaleImageHoriz(addPoints(lastImage), 320)));
-            bIjl.setIcon(new ImageIcon(scaleImageHoriz(lastImage, 320)));
-            revalidate();
-            repaint();
-            System.out.println("check");
         };
         frame.getContentPane().add(this);
         timer = new Timer(80, action);
-        timerWork = new Timer(5, actionWork);
         timer.start();
     }
 
@@ -265,7 +243,7 @@ public class Main extends JPanel {
         }
         webcam.setViewSize(cameraDimension);
         webcam.open();
-        SwingUtilities.invokeLater(Main::new);
+        SwingUtilities.invokeLater(CellViewer::new);
     }
 
     /**
@@ -290,7 +268,7 @@ public class Main extends JPanel {
         Graphics g = copyOfImage.createGraphics();
         g.drawImage(image2, 0, 0, null);
         Graphics2D g2 = copyOfImage.createGraphics();
-    /*    FancyInterestPointRender render = new FancyInterestPointRender();
+      /*  FancyInterestPointRender render = new FancyInterestPointRender();
         for (int i1 = 0; i1 < img2Points.size(); i1++) {
             Point2D_F64 pp = img2Points.get(i1);
             int radius = img2R.get(i1).intValue();
@@ -376,18 +354,18 @@ public class Main extends JPanel {
      * Resize big image
      *
      * @param source bigger image
-     * @param scale  coefficient of scale
      * @return smaller image
      */
-    private BufferedImage scaleImageHoriz(BufferedImage source, int scale) {
-        int newHeight = new Double(source.getHeight() / (source.getWidth() / scale)).intValue();
+    private BufferedImage scaleImageHoriz(BufferedImage source, int w) {
+        //   int newHeight = new Double(source.getHeight() / (source.getWidth() / 320)).intValue();
+        int newWidght = new Double(source.getWidth() / (source.getHeight() / w)).intValue();
         BufferedImage resized = null;
         try {
-            resized = new BufferedImage(scale, newHeight, BufferedImage.TYPE_INT_ARGB);
+            resized = new BufferedImage(newWidght, w, BufferedImage.TYPE_INT_ARGB);
             Graphics2D g = resized.createGraphics();
             g.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
                     RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-            g.drawImage(source, 0, 0, scale, newHeight, 0, 0, source.getWidth(),
+            g.drawImage(source, 0, 0, newWidght, w, 0, 0, source.getWidth(),
                     source.getHeight(), null);
             g.dispose();
         } catch (Exception e) {
@@ -395,5 +373,155 @@ public class Main extends JPanel {
         }
         return resized;
     }
-}
 
+    @Override
+    public void keyTyped(KeyEvent e) {
+    }
+
+    @Override
+    public void keyPressed(KeyEvent e) {
+        int keyCode = e.getKeyCode();
+        if (keyCode == KeyEvent.VK_BACK_SPACE) {
+            if (masked) {
+                if (bigImage == null) {
+                    bigImage = lastImage;
+                    midPosition = new int[]{0, 0};
+                    midImage = lastImage;
+                    bufIm.setIcon(new ImageIcon(scaleImageHoriz(midImage, 240)));
+                } else {
+                    bigImage = stitch();
+                    grandMap.setIcon(new ImageIcon(scaleImageHoriz(bigImage, 480)));
+                    pIjl.setIcon(new ImageIcon(scaleImageHoriz(addPoints(lastImage), 240)));
+                    bIjl.setIcon(new ImageIcon(scaleImageHoriz(lastImage, 240)));
+                    bufIm.setIcon(new ImageIcon(scaleImageHoriz(midImage, 240)));
+                    revalidate();
+                    repaint();
+                    System.out.println("check");
+                }
+            } else {
+                JOptionPane.showMessageDialog(null, "Please, add mask first!", "Warning",
+                        JOptionPane.WARNING_MESSAGE);
+            }
+        }
+    }
+
+    @Override
+    public void keyReleased(KeyEvent e) {
+    }
+
+    private static <T extends ImageGray<T>, FD extends TupleDesc>
+    void describeImage(GrayF32 image,
+                       DetectDescribePoint detDesc,
+                       java.util.List<Point2D_F64> points,
+                       FastQueue<FD> listDescs) {
+        long time = System.currentTimeMillis();
+        detDesc.detect(image);
+        //   System.out.println((System.currentTimeMillis() - time) + " ms 1");
+        listDescs.reset();
+        // System.out.println((System.currentTimeMillis() - time) + " ms 2");
+        for (int i = 0; i < detDesc.getNumberOfFeatures(); i++) {
+            points.add(detDesc.getLocation(i).copy());
+            listDescs.grow().setTo(detDesc.getDescription(i));
+        }
+    }
+
+    public BufferedImage stitch() {
+        // GrayF32 inputA = ConvertBufferedImage.convertFromSingle(bigImage, null, GrayF32.class);
+        GrayF32 inputA = ConvertBufferedImage.convertFromSingle(midImage, null, GrayF32.class);
+        GrayF32 inputB = ConvertBufferedImage.convertFromSingle(lastImage, null, GrayF32.class);
+        // Detect using the standard SURF feature descriptor and describer
+        DetectDescribePoint detDesc = FactoryDetectDescribe.surfStable(
+                new ConfigFastHessian(10, 2, 100, 2, 9, 3, 4), null, null, GrayF32.class);
+        //  new ConfigFastHessian(1, 2, 200, 1, 9, 4, 4), null, null, GrayF32.class);
+        ScoreAssociation<BrightFeature> scorer = FactoryAssociation.scoreEuclidean(BrightFeature.class, true);
+        AssociateDescription<BrightFeature> associate = FactoryAssociation.greedy(scorer, 2, true);
+        // fit the images using a homography.  This works well for rotations and distant objects.
+        ModelMatcher<Homography2D_F64, AssociatedPair> modelMatcher =
+                FactoryMultiViewRobust.homographyRansac(null, new ConfigRansac(60, 3));
+        Homography2D_F64 H = computeTransform(inputA, inputB, detDesc, associate, modelMatcher);
+        //return and reneder image
+        if (H.a13 > cameraDimension.width | H.a13 < -cameraDimension.width | H.a23 > cameraDimension.width | H.a23 < -cameraDimension.width) {
+            System.err.println("Fail!");
+            return bigImage;
+        }
+        System.out.println(H.a13 + " " + H.a23 + " H");
+        System.out.println(midPosition[0] + " " + midPosition[1] + " M");
+        int xD = bigImage.getWidth();
+        double xT = (Math.abs(H.a13) + midPosition[0] + lastImage.getWidth());
+        if (xD < xT) {
+            xD = (int) Math.round(xT);
+        }
+        int yD = bigImage.getHeight();
+        double yT = (Math.abs(H.a23) + midPosition[1] + lastImage.getHeight());
+        if (yD < yT) {
+            yD = (int) Math.round(yT);
+        }
+        System.out.println("Dimension of  new map - " + xD + " " + yD);
+        BufferedImage imageEnd = new BufferedImage(xD, yD, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g2 = imageEnd.createGraphics();
+        int xA1 = 0;
+        if ((midPosition[0] - H.a13) < 0) {
+            xA1 = ((int) Math.round(H.a13 - midPosition[0]));
+        }
+        int yA1 = 0;
+        if ((midPosition[1] - H.a23) < 0) {
+            yA1 = ((int) Math.round(H.a23 - midPosition[1]));
+        }
+        //  System.out.println(xA1 + " " + yA1);
+        System.out.println("Location of map - " + xA1 + " " + yA1);
+        g2.drawImage(bigImage, null, xA1, yA1);
+        xA1 = midPosition[0] - ((int) Math.round(H.a13));
+        if ((midPosition[0] - H.a13) < 0) {
+            xA1 = 0;
+        }
+        yA1 = midPosition[1] - ((int) Math.round(H.a23));
+        if ((midPosition[1] - H.a23) < 0) {
+            yA1 = 0;
+        }
+        // System.out.println(xA1 + " " + yA1);
+        System.out.println("Location of image - " + xA1 + " " + yA1);
+        g2.drawImage(lastImage, null, xA1, yA1);
+        g2.dispose();
+        midPosition[0] = xA1;
+        midPosition[1] = yA1;
+        midImage = lastImage;
+        return imageEnd;
+    }
+
+    /**
+     * Using abstracted code, find a transform which minimizes the difference between corresponding features
+     * in both images.  This code is completely model independent and is the core algorithms.
+     */
+    private static <T extends ImageGray<T>, FD extends TupleDesc> Homography2D_F64
+    computeTransform(GrayF32 imageA, GrayF32 imageB,
+                     DetectDescribePoint<T, FD> detDesc,
+                     AssociateDescription<FD> associate,
+                     ModelMatcher<Homography2D_F64, AssociatedPair> modelMatcher) {
+        // get the length of the description
+        java.util.List<Point2D_F64> pointsA = new ArrayList<>();
+        FastQueue<FD> descA = UtilFeature.createQueue(detDesc, 100);
+        java.util.List<Point2D_F64> pointsB = new ArrayList<>();
+        FastQueue<FD> descB = UtilFeature.createQueue(detDesc, 100);
+        // extract feature locations and descriptions from each image
+        describeImage(imageA, detDesc, pointsA, descA);
+        describeImage(imageB, detDesc, pointsB, descB);
+        // Associate features between the two images
+        associate.setSource(descA);
+        associate.setDestination(descB);
+        associate.associate();
+        // create a list of AssociatedPairs that tell the model matcher how a feature moved
+        FastQueue<AssociatedIndex> matches = associate.getMatches();
+        java.util.List<AssociatedPair> pairs = new ArrayList<>();
+        for (int i = 0; i < matches.size(); i++) {
+            AssociatedIndex match = matches.get(i);
+            Point2D_F64 a = pointsA.get(match.src);
+            Point2D_F64 b = pointsB.get(match.dst);
+            pairs.add(new AssociatedPair(a, b, false));
+        }
+        // find the best fit model to describe the change between these images
+        if (!modelMatcher.process(pairs))
+            throw new RuntimeException("Model Matcher failed!");
+        // return the found image transform
+        return modelMatcher.getModelParameters().copy();
+    }
+}

@@ -28,10 +28,14 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
-public class MultyplyIm extends JPanel {
+public class MultyplyIm2 extends JPanel {
+    private static BufferedImage bigImage;
+    private static BufferedImage midImage;
+    private static int[] midPosition;
     private JLabel images = new JLabel();
+    static int u = 0;
 
-    public MultyplyIm() throws IOException {
+    public MultyplyIm2() throws IOException {
         JFrame frame = new JFrame("SLIDE");
         frame.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
         frame.setLocationByPlatform(true);
@@ -45,15 +49,13 @@ public class MultyplyIm extends JPanel {
     }
 
     public static void main(String[] args) throws IOException {
-        long time = System.currentTimeMillis();
         SwingUtilities.invokeLater(() -> {
             try {
-                new MultyplyIm();
+                new MultyplyIm2();
             } catch (IOException e) {
                 e.printStackTrace();
             }
         });
-        System.out.println((System.currentTimeMillis() - time) + "ms");
     }
 
     /**
@@ -113,13 +115,12 @@ public class MultyplyIm extends JPanel {
      * Given two input images create and display an image where the two have been overlayed on top of each other.
      */
     public static <T extends ImageGray<T>>
-    BufferedImage stitch(BufferedImage imageA, BufferedImage imageB, Class<T> imageType) {
-        long time=System.currentTimeMillis();
-        T inputA = ConvertBufferedImage.convertFromSingle(imageA, null, imageType);
-        T inputB = ConvertBufferedImage.convertFromSingle(imageB, null, imageType);
+    BufferedImage stitch(BufferedImage lastImage) {
+        GrayF32 inputA = ConvertBufferedImage.convertFromSingle(midImage, null, GrayF32.class);
+        GrayF32 inputB = ConvertBufferedImage.convertFromSingle(lastImage, null, GrayF32.class);
         // Detect using the standard SURF feature descriptor and describer
         DetectDescribePoint detDesc = FactoryDetectDescribe.surfStable(
-                new ConfigFastHessian(1, 2, 200, 1, 9, 4, 4), null, null, imageType);
+                new ConfigFastHessian(1, 2, 200, 1, 9, 4, 4), null, null, GrayF32.class);
         ScoreAssociation<BrightFeature> scorer = FactoryAssociation.scoreEuclidean(BrightFeature.class, true);
         AssociateDescription<BrightFeature> associate = FactoryAssociation.greedy(scorer, 2, true);
         // fit the images using a homography.  This works well for rotations and distant objects.
@@ -129,13 +130,13 @@ public class MultyplyIm extends JPanel {
         //return and reneder image
         System.out.println(H.a13);
         System.out.println(H.a23);
-        int xD = imageA.getWidth();
-        double xT = (Math.abs(H.a13) + imageB.getWidth());
+        int xD = bigImage.getWidth();
+        double xT = (Math.abs(H.a13) + midPosition[0] + lastImage.getWidth());
         if (xD < xT) {
             xD = (int) Math.round(xT);
         }
-        int yD = imageA.getHeight();
-        double yT = (Math.abs(H.a23) + imageB.getHeight());
+        int yD = bigImage.getHeight();
+        double yT = (Math.abs(H.a23) + midPosition[1] + lastImage.getHeight());
         if (yD < yT) {
             yD = (int) Math.round(yT);
         }
@@ -143,41 +144,54 @@ public class MultyplyIm extends JPanel {
         BufferedImage imageEnd = new BufferedImage(xD, yD, BufferedImage.TYPE_INT_ARGB);
         Graphics2D g2 = imageEnd.createGraphics();
         int xA1 = 0;
-        if (H.a13 > 0) {
-            xA1 = ((int) Math.round(H.a13));
+        if ((midPosition[0] - H.a13) < 0) {
+            xA1 = ((int) Math.round(H.a13 - midPosition[0]));
         }
         int yA1 = 0;
-        if (H.a23 > 0) {
-            yA1 = ((int) Math.round(H.a23));
+        if ((midPosition[1] - H.a23) < 0) {
+            yA1 = ((int) Math.round(H.a23 - midPosition[1]));
         }
-        System.out.println(xA1 + " " + yA1);
+        //  System.out.println(xA1 + " " + yA1);
         System.out.println("Location of map - " + xA1 + " " + yA1);
-        g2.drawImage(imageA, null, xA1, yA1);
-        xA1 = -((int) Math.round(H.a13));
-        if (H.a13 > 0) {
+        g2.drawImage(bigImage, null, xA1, yA1);
+        xA1 = midPosition[0] - ((int) Math.round(H.a13));
+        if ((midPosition[0] - H.a13) < 0) {
             xA1 = 0;
         }
-        yA1 = -((int) Math.round(H.a23));
-        if (H.a23 > 0) {
+        yA1 = midPosition[1] - ((int) Math.round(H.a23));
+        if ((midPosition[1] - H.a23) < 0) {
             yA1 = 0;
         }
-        System.out.println(xA1 + " " + yA1);
-        System.out.println("Location of im - " + xA1 + " " + yA1);
-        g2.drawImage(imageB, null, xA1, yA1);
+        // System.out.println(xA1 + " " + yA1);
+        System.out.println("Location of image - " + xA1 + " " + yA1);
+        g2.drawImage(lastImage, null, xA1, yA1);
         g2.dispose();
-        System.out.println((System.currentTimeMillis()-time)+" ms");
+        midPosition[0] = xA1;
+        midPosition[1] = yA1;
+        midImage = lastImage;
+        JFrame framea = new JFrame("SLIDE+" + u);
+        framea.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
+        framea.setLocationByPlatform(true);
+        JLabel imagesa = new JLabel();
+        framea.add(imagesa);
+        framea.setSize(new Dimension(300, 400));
+        imagesa.setIcon(new ImageIcon(imageEnd));
+        framea.setVisible(true);
+        u++;
         return imageEnd;
     }
 
     private BufferedImage getOneImageFromList(String[] files) throws IOException {
-        BufferedImage imageA = ImageIO.read(new File(files[0]));
+        bigImage = ImageIO.read(new File(files[0]));
+        midImage = bigImage;
+        midPosition = new int[]{0, 0};
         for (int i = 1; i < files.length; i++) {
             if (i == 2) {
                 System.out.println();
             }
             BufferedImage imageB = ImageIO.read(new File(files[i]));
-            imageA = stitch(imageA, imageB, GrayF32.class);
+            bigImage = stitch(imageB);
         }
-        return imageA;
+        return bigImage;
     }
 }

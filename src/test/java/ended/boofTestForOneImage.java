@@ -52,7 +52,7 @@ public class boofTestForOneImage {
     }
 
     public static void main(String args[]) throws IOException {
-        BufferedImage image = ImageIO.read(new File("g2.jpg"));
+        BufferedImage image = ImageIO.read(new File("g2.png"));
         detect(image, GrayF32.class);
     }
 }

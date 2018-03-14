@@ -9,7 +9,5 @@
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
-    <orderEntry type="library" name="jlibs3" level="project" />
-    <orderEntry type="library" name="jlibs4" level="project" />
   </component>
 </module>

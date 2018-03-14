@@ -170,8 +170,8 @@ public class ExampleImageStitching {
     }
 
     public static void main(String args[]) throws IOException {
-        BufferedImage imageA = ImageIO.read(new File("01.jpg"));
-        BufferedImage imageB = ImageIO.read(new File("02.jpg"));
+        BufferedImage imageA = ImageIO.read(new File("g2.png"));
+        BufferedImage imageB = ImageIO.read(new File("g3.png"));
 
         /*imageA = UtilImageIO.loadImage(UtilIO.pathExample("stitch/mountain_rotate_01.jpg"));
         imageB = UtilImageIO.loadImage(UtilIO.pathExample("stitch/mountain_rotate_03.jpg"));*/

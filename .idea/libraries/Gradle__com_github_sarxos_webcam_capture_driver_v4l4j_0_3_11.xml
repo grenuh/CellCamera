@@ -1,0 +1,11 @@
+<component name="libraryTable">
+  <library name="Gradle: com.github.sarxos:webcam-capture-driver-v4l4j:0.3.11">
+    <CLASSES>
+      <root url="jar://$USER_HOME$/.gradle/caches/modules-2/files-2.1/com.github.sarxos/webcam-capture-driver-v4l4j/0.3.11/f65aadc31b25be16ec6ff486c8ef3b36f0c8e36a/webcam-capture-driver-v4l4j-0.3.11.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES>
+      <root url="jar://$USER_HOME$/.gradle/caches/modules-2/files-2.1/com.github.sarxos/webcam-capture-driver-v4l4j/0.3.11/71adc018d1942f5d008f2986587579c9bbe88bec/webcam-capture-driver-v4l4j-0.3.11-sources.jar!/" />
+    </SOURCES>
+  </library>
+</component>
